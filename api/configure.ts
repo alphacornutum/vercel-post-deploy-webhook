@@ -1,14 +1,14 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
-import * as admin from 'firebase-admin';
-import { Vercel } from '../lib/vercelApi';
+import type { VercelRequest, VercelResponse } from "@vercel/node";
+import * as admin from "firebase-admin";
+import { Vercel } from "../lib/vercelApi";
 
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert({
-      projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+      projectId: process.env.FIREBASE_PROJECT_ID,
       clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
-    })
+      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+    }),
   });
 }
 
@@ -18,17 +18,21 @@ async function post(req: VercelRequest, res: VercelResponse) {
   const { body, query } = req;
   // Installations. Access Tokens etc.
   const configuration_id = body.configurationId || query.configurationId;
-  const installationRef = await db.collection('installations').doc(<string>configuration_id);
+  const installationRef = await db
+    .collection("installations")
+    .doc(<string>configuration_id);
   const installation = await installationRef.get();
 
   if (installation.exists == false) {
-    res.status(401).end('Not authorised');
+    res.status(401).end("Not authorised");
   }
 
   // parse the body
   const projectSettings = {};
 
-  for (let [key, value] of Object.entries(body).filter(([key, value]) => value != "")) {
+  for (let [key, value] of Object.entries(body).filter(
+    ([key, value]) => value != ""
+  )) {
     projectSettings[key] = value;
   }
 
@@ -38,22 +42,29 @@ async function post(req: VercelRequest, res: VercelResponse) {
   const installation_id = installationData.installation_id;
 
   // Configuration. What should we do with the webhook.
-  const configurationRef = await db.collection('configuration').doc(<string>installation_id);
+  const configurationRef = await db
+    .collection("configuration")
+    .doc(<string>installation_id);
 
   await configurationRef.set({
     installation_id,
-    ...projectSettings
+    ...projectSettings,
   });
 
   const configuration = await configurationRef.get();
-  const vercelAPI = new Vercel({ authorization: access_token })
+  const vercelAPI = new Vercel({ authorization: access_token });
 
   // Get a list of projects
   const projectsResposnse = await vercelAPI.projects({
-    teamId: team_id
+    teamId: team_id,
   });
 
-  return { projectsResposnse, installation_id, team_id, configuration: configuration.data() };
+  return {
+    projectsResposnse,
+    installation_id,
+    team_id,
+    configuration: configuration.data(),
+  };
 }
 
 async function get(req: VercelRequest, res: VercelResponse) {
@@ -61,10 +72,12 @@ async function get(req: VercelRequest, res: VercelResponse) {
   // Installations. Access Tokens etc.
   const configuration_id = query.configurationId;
 
-  const installationRef = await db.collection('installations').doc(<string>configuration_id);
+  const installationRef = await db
+    .collection("installations")
+    .doc(<string>configuration_id);
   const installation = await installationRef.get();
   if (installation.exists == false) {
-    res.status(401).end('Not authorised');
+    res.status(401).end("Not authorised");
   }
 
   const installationData = installation.data();
@@ -73,38 +86,53 @@ async function get(req: VercelRequest, res: VercelResponse) {
   const installation_id = installationData.installation_id;
 
   // Configuration. What should we do with the webhook.
-  const configurationRef = await db.collection('configuration').doc(<string>installation_id);
+  const configurationRef = await db
+    .collection("configuration")
+    .doc(<string>installation_id);
 
   const configuration = await configurationRef.get();
 
   if (configuration.exists == false) {
     configurationRef.set({
-      installation_id
+      installation_id,
     });
   }
 
-  const vercelAPI = new Vercel({ authorization: access_token })
+  const vercelAPI = new Vercel({ authorization: access_token });
 
   // Get a list of projects
   const projectsResposnse = await vercelAPI.projects({
-    teamId: team_id
+    teamId: team_id,
   });
 
-  return { projectsResposnse, installation_id, team_id, configuration: configuration.data() };
+  return {
+    projectsResposnse,
+    installation_id,
+    team_id,
+    configuration: configuration.data(),
+  };
 }
 
 export default async function (req: VercelRequest, res: VercelResponse) {
   const { method } = req;
-  let projectsResposnse, installation_id, team_id, configuration;
+  let projectsResponse, installation_id, team_id, configuration;
 
   if (method == "POST") {
-    ({ projectsResposnse, installation_id, team_id, configuration } = await post(req, res))
-  }
-  else if (method == "GET") {
-    ({ projectsResposnse, installation_id, team_id, configuration } = await get(req, res))
-  }
-  else {
-    return res.status(404).end(":(")
+    ({
+      projectsResposnse: projectsResponse,
+      installation_id,
+      team_id,
+      configuration,
+    } = await post(req, res));
+  } else if (method == "GET") {
+    ({
+      projectsResposnse: projectsResponse,
+      installation_id,
+      team_id,
+      configuration,
+    } = await get(req, res));
+  } else {
+    return res.status(404).end(":(");
   }
 
   res.status(200).end(`<html>
@@ -114,11 +142,15 @@ export default async function (req: VercelRequest, res: VercelResponse) {
   <body>
   <h1>Configure</h1>
   <form method="post" action="/configure">
-  ${projectsResposnse.projects.map(project => {
-    return `
+  ${projectsResponse.projects
+    .map((project) => {
+      return `
     <label for="${project.id}">${project.name}</label>
-    <input type="url" name="${project.id}" id="${project.id}" value="${configuration[project.id] || ""}">`
-  }).join('')}
+    <input type="url" name="${project.id}" id="${project.id}" value="${
+        configuration[project.id] || ""
+      }">`;
+    })
+    .join("")}
 
     <input type="hidden" value="${installation_id}" name="configurationId">
     <input type="hidden" value="${team_id}" name="team_id">
